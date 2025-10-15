@@ -23,12 +23,15 @@ const serializeFarmer = (farmer: InstanceType<typeof Farmer>) => ({
   updatedAt: farmer.updatedAt.toISOString(),
 });
 
-export const GET = async (
-  _request: Request,
-  { params }: { params: { id: string } }
-) => {
+type FarmerByIdContext = { params: Promise<{ id: string }> };
+
+export const GET = async (_request: Request, context: FarmerByIdContext) => {
+  let farmerId: string | undefined;
   try {
-    if (!Types.ObjectId.isValid(params.id)) {
+    const { id } = await context.params;
+    farmerId = id;
+
+    if (!Types.ObjectId.isValid(farmerId)) {
       return NextResponse.json(
         { message: "Identificador inválido" },
         { status: 400 }
@@ -36,7 +39,7 @@ export const GET = async (
     }
 
     await connectMongo();
-    const farmer = await Farmer.findById(params.id);
+    const farmer = await Farmer.findById(farmerId);
     if (!farmer) {
       return NextResponse.json(
         { message: "Agricultor não encontrado" },
@@ -46,7 +49,7 @@ export const GET = async (
 
     return NextResponse.json({ data: serializeFarmer(farmer) });
   } catch (error) {
-    console.error(`GET /api/farmers/${params.id}`, error);
+    console.error(`GET /api/farmers/${farmerId ?? "unknown"}`, error);
     return NextResponse.json(
       { message: "Erro ao carregar agricultor" },
       { status: 500 }
@@ -54,12 +57,13 @@ export const GET = async (
   }
 };
 
-export const PUT = async (
-  request: Request,
-  { params }: { params: { id: string } }
-) => {
+export const PUT = async (request: Request, context: FarmerByIdContext) => {
+  let farmerId: string | undefined;
   try {
-    if (!Types.ObjectId.isValid(params.id)) {
+    const { id } = await context.params;
+    farmerId = id;
+
+    if (!Types.ObjectId.isValid(farmerId)) {
       return NextResponse.json(
         { message: "Identificador inválido" },
         { status: 400 }
@@ -70,7 +74,7 @@ export const PUT = async (
     const parsed = updateFarmerSchema.parse(payload);
 
     await connectMongo();
-    const farmer = await Farmer.findById(params.id);
+    const farmer = await Farmer.findById(farmerId);
     if (!farmer) {
       return NextResponse.json(
         { message: "Agricultor não encontrado" },
@@ -96,7 +100,7 @@ export const PUT = async (
       );
     }
 
-    console.error(`PUT /api/farmers/${params.id}`, error);
+    console.error(`PUT /api/farmers/${farmerId ?? "unknown"}`, error);
     return NextResponse.json(
       { message: "Erro ao atualizar agricultor" },
       { status: 500 }
@@ -104,12 +108,13 @@ export const PUT = async (
   }
 };
 
-export const DELETE = async (
-  _request: Request,
-  { params }: { params: { id: string } }
-) => {
+export const DELETE = async (_request: Request, context: FarmerByIdContext) => {
+  let farmerId: string | undefined;
   try {
-    if (!Types.ObjectId.isValid(params.id)) {
+    const { id } = await context.params;
+    farmerId = id;
+
+    if (!Types.ObjectId.isValid(farmerId)) {
       return NextResponse.json(
         { message: "Identificador inválido" },
         { status: 400 }
@@ -117,7 +122,7 @@ export const DELETE = async (
     }
 
     await connectMongo();
-    const farmer = await Farmer.findById(params.id);
+    const farmer = await Farmer.findById(farmerId);
     if (!farmer) {
       return NextResponse.json(
         { message: "Agricultor não encontrado" },
@@ -141,7 +146,7 @@ export const DELETE = async (
       { status: 200 }
     );
   } catch (error) {
-    console.error(`DELETE /api/farmers/${params.id}`, error);
+    console.error(`DELETE /api/farmers/${farmerId ?? "unknown"}`, error);
     return NextResponse.json(
       { message: "Erro ao remover agricultor" },
       { status: 500 }
