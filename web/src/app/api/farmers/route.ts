@@ -22,7 +22,10 @@ const buildFilters = (searchParams: URLSearchParams) => {
 
   const cpf = searchParams.get("cpf");
   if (cpf) {
-    filters.cpf = normalizeCPF(cpf);
+    const cpfDigits = normalizeCPF(cpf);
+    if (cpfDigits) {
+      filters.cpf = { $regex: cpfDigits };
+    }
   }
 
   const active = searchParams.get("active");

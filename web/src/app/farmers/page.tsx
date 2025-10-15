@@ -4,12 +4,12 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
 import { formatCPF, isValidCPF, stripCPF } from "@/lib/cpf";
 import { formatPhoneNumber, stripPhoneDigits } from "@/lib/phone";
-import { normalizeHumanName } from "@/lib/text";
 import { toDateInputValue } from "@/lib/date";
 import { farmerApi, toFarmerFilters } from "@/services/farmers";
 import { HttpError } from "@/services/http";
@@ -46,6 +46,13 @@ const FarmersPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<FormMessage | null>(null);
 
+  const filtersRef = useRef(filters);
+  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
   const handleFormFieldBlur = (field: keyof FarmerFormState) => {
     setFormState((previous) => {
       const currentValue = previous[field];
@@ -60,26 +67,13 @@ const FarmersPage = () => {
     });
   };
 
-  const handleFilterFieldBlur = (field: keyof FarmerFiltersState) => {
-    setFilters((previous) => {
-      const currentValue = previous[field];
-      if (typeof currentValue !== "string") {
-        return previous;
-      }
-      const trimmed = currentValue.trim();
-      if (trimmed === currentValue) {
-        return previous;
-      }
-      return { ...previous, [field]: trimmed };
-    });
-  };
-
   const loadFarmers = useCallback(
-    async (currentFilters: FarmerFiltersState = filters) => {
+    async (currentFilters?: FarmerFiltersState) => {
+      const appliedFilters = currentFilters ?? filtersRef.current;
       setLoading(true);
       setMessage(null);
       try {
-        const data = await farmerApi.list(toFarmerFilters(currentFilters));
+        const data = await farmerApi.list(toFarmerFilters(appliedFilters));
         setFarmers(data);
       } catch (error) {
         if (error instanceof HttpError) {
@@ -95,12 +89,52 @@ const FarmersPage = () => {
         setLoading(false);
       }
     },
-    [filters]
+    []
+  );
+
+  const clearFilterDebounce = useCallback(() => {
+    if (filterDebounceRef.current) {
+      clearTimeout(filterDebounceRef.current);
+      filterDebounceRef.current = null;
+    }
+  }, []);
+
+  const scheduleFilterFetch = useCallback(
+    (nextFilters: FarmerFiltersState) => {
+      clearFilterDebounce();
+      filterDebounceRef.current = setTimeout(() => {
+        filterDebounceRef.current = null;
+        void loadFarmers(nextFilters);
+      }, 400);
+    },
+    [clearFilterDebounce, loadFarmers]
+  );
+
+  const handleFilterFieldBlur = useCallback(
+    (field: keyof FarmerFiltersState) => {
+      setFilters((previous) => {
+        const currentValue = previous[field];
+        if (typeof currentValue !== "string") {
+          return previous;
+        }
+        const trimmed = currentValue.trim();
+        if (trimmed === currentValue) {
+          return previous;
+        }
+        const next = { ...previous, [field]: trimmed };
+        scheduleFilterFetch(next);
+        return next;
+      });
+    },
+    [scheduleFilterFetch]
   );
 
   useEffect(() => {
-    loadFarmers();
-  }, [loadFarmers]);
+    void loadFarmers();
+    return () => {
+      clearFilterDebounce();
+    };
+  }, [clearFilterDebounce, loadFarmers]);
 
   const resetForm = useCallback(() => {
     setFormState(initialForm);
@@ -110,12 +144,15 @@ const FarmersPage = () => {
 
   const handleFilterSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    clearFilterDebounce();
     await loadFarmers(filters);
   };
 
   const handleFilterReset = async () => {
+    clearFilterDebounce();
     const reset = { ...initialFilters };
     setFilters(reset);
+    filtersRef.current = reset;
     await loadFarmers(reset);
   };
 
@@ -287,10 +324,7 @@ const FarmersPage = () => {
               }`}
               value={formState.fullName}
               onChange={(event) =>
-                handleFormChange(
-                  "fullName",
-                  normalizeHumanName(event.target.value)
-                )
+                handleFormChange("fullName", event.target.value)
               }
               placeholder="Maria da Silva"
               autoComplete="name"
@@ -455,12 +489,17 @@ const FarmersPage = () => {
                 id="filterFullName"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 value={filters.fullName}
-                onChange={(event) =>
-                  setFilters((previous) => ({
-                    ...previous,
-                    fullName: normalizeHumanName(event.target.value),
-                  }))
-                }
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setFilters((previous) => {
+                    if (previous.fullName === value) {
+                      return previous;
+                    }
+                    const next = { ...previous, fullName: value };
+                    scheduleFilterFetch(next);
+                    return next;
+                  });
+                }}
                 onBlur={() => handleFilterFieldBlur("fullName")}
                 placeholder="Pesquisar por nome"
               />
@@ -478,7 +517,14 @@ const FarmersPage = () => {
                 value={formatCPF(filters.cpf)}
                 onChange={(event) => {
                   const digits = stripCPF(event.target.value).slice(0, 11);
-                  setFilters((previous) => ({ ...previous, cpf: digits }));
+                  setFilters((previous) => {
+                    if (previous.cpf === digits) {
+                      return previous;
+                    }
+                    const next = { ...previous, cpf: digits };
+                    scheduleFilterFetch(next);
+                    return next;
+                  });
                 }}
                 onBlur={() => handleFilterFieldBlur("cpf")}
                 placeholder="000.000.000-00"
@@ -495,12 +541,18 @@ const FarmersPage = () => {
                 id="filterActive"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 value={filters.active}
-                onChange={(event) =>
-                  setFilters((previous) => ({
-                    ...previous,
-                    active: event.target.value as FarmerFiltersState["active"],
-                  }))
-                }
+                onChange={(event) => {
+                  const value = event.target
+                    .value as FarmerFiltersState["active"];
+                  setFilters((previous) => {
+                    if (previous.active === value) {
+                      return previous;
+                    }
+                    const next = { ...previous, active: value };
+                    scheduleFilterFetch(next);
+                    return next;
+                  });
+                }}
               >
                 <option value="all">Todos</option>
                 <option value="true">Ativos</option>
